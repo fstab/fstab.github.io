@@ -1,0 +1,39 @@
+---
+layout:   post
+title:    "ALPN and Java"
+date:     2015-10-09 08:53:54
+comments: true
+---
+
+The [Application Layer Protocol Negotiation (ALPN)][1] is an extension for the
+SSL protocol that helps to make HTTPS connections faster.
+It was defined together with HTTP/2, and HTTP/2 uses ALPN to create HTTPS
+connections. As [most browsers implement HTTP/2 only over HTTPS][2],
+ALPN should be supported by any server or client implementing HTTP/2.
+
+The OpenJDK implements SSL in the `sun.security.ssl` package.
+The current implementations in Java 7 and Java 8 do not support ALPN.
+With Java 9, [ALPN will become part of the Java SE standard][3],
+i.e. Java 9 will provide native support for ALPN.
+
+As long as Java 9 is not ready, an external SSL library with ALPN support must be used.
+The Jetty project [provides a library with ALPN support
+for `sun.security.ssl`][4].
+
+However, as the SSL implementation is part of the Java runtime,
+Jetty's ALPN JAR cannot simply be put into the CLASSPATH.
+Instead, Java must be started with the parameter
+`-Xbootclasspath/p:alpn-boot-VERSION.jar` to overwrite Java's boot classpath.
+This only works if Jetty's ALPN version fits exactly with the OpenJDK
+version used.
+
+A table of OpenJDK versions and corresponding versions of the ALPN boot JAR
+can be found [here (see table 14.1)][5]. Binary versions of the JAR can be downloaded
+[here][6].
+
+[1]: https://tools.ietf.org/html/rfc7301
+[2]: https://en.wikipedia.org/wiki/HTTP/2#Browser_support
+[3]: http://openjdk.java.net/jeps/244
+[4]: https://github.com/jetty-project/jetty-alpn
+[5]: http://www.eclipse.org/jetty/documentation/current/alpn-chapter.html
+[6]: http://repo1.maven.org/maven2/org/mortbay/jetty/alpn/alpn-boot/
