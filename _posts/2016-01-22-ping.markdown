@@ -6,10 +6,10 @@ comments: true
 ---
 
 The latest version of [h2c] supports [ping] frames.
-When [h2c] is running and connected, you can start sending a ping every second like this:
+When [h2c] is running and connected, you can start sending a ping every other second like this:
 
 {% highlight bash %}
-h2c ping --interval 1s
+h2c ping --interval 2s
 {% endhighlight %}
 
 All major Java HTTP/2 Servlet containers can be configured with connection idle timeouts, 
