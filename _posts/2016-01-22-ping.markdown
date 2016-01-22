@@ -15,7 +15,7 @@ h2c ping --interval 2s
 All major Java HTTP/2 Servlet containers can be configured with connection idle timeouts, 
 and all servers keep connections open when the client pings regularly.
 
-The following shows how to experiment with timeouts and ping frames with the three major Java [HTTP/2] Servlet containers.
+The following shows how to experiment with timeouts and ping frames with the three major [HTTP/2] Servlet containers.
 
 Undertow
 --------
