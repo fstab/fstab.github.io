@@ -1,0 +1,144 @@
+---
+layout:   post
+title:    "Ping (keep http/2 connections alive)"
+date:     2016-01-22 14:02:35
+comments: true
+---
+
+The latest version of [h2c] supports [ping] frames.
+When [h2c] is running and connected, you can start sending a ping every second like this:
+
+{% highlight bash %}
+h2c ping --interval 1s
+{% endhighlight %}
+
+All major Java HTTP/2 Servlet containers can be configured with connection idle timeouts, 
+and all servers keep connections open when the client pings regularly.
+
+The following shows how to experiment with timeouts and ping frames with the three major [Java] [HTTP/2] servers.
+
+Undertow
+--------
+
+The following shows how to build and run the [Undertow] HTTP/2 example:
+
+{% highlight bash %}
+git clone https://github.com/undertow-io/undertow
+cd undertow
+# Just in case you want to access the server from another machine, replace 'localhost' with '0.0.0.0' in the Http2Server example.
+sed -i.bak s/localhost/0.0.0.0/g examples/src/main/java/io/undertow/examples/http2/Http2Server.java
+mvn clean package -DskipTests
+# Download the ALPN for the JDK. My JDK is 1.8.0_66, so I use ALPN version 8.1.5.
+wget http://central.maven.org/maven2/org/mortbay/jetty/alpn/alpn-boot/8.1.5.v20150921/alpn-boot-8.1.5.v20150921.jar
+
+java -Xbootclasspath/p:alpn-boot-8.1.5.v20150921.jar -cp examples/target/undertow-examples.jar io.undertow.examples.http2.Http2Server
+{% endhighlight %}
+
+The example has no timeout configured, HTTP/2 connections will be open forever.
+In order to configure the timeout, edit the example class `io.undertow.examples.http2.Http2Server`,
+and add the following where the `Undertow` server is created (near line `79`):
+
+{% highlight java %}
+.setServerOption(UndertowOptions.IDLE_TIMEOUT, 5*1000)
+{% endhighlight %}
+
+This makes HTTP/2 connections time out after 5 seconds of idle time.
+
+WildFly
+-------
+
+[WildFly] uses [Undertow] as its Servlet container, so in theory it should support all Undertow features.
+However, it seems that Undertow's `IDLE_TIMEOUT` is not exposed in the [WildFly configuration].
+As I understand it, it is not possible to configure idle timeouts for HTTP/2 connections in WildFly.
+HTTP/2 connections will be open forever.
+I asked a question about it in the JBoss developer forum [https://developer.jboss.org/thread/266991],
+if you know anything about this, please comment here or there.
+
+Jetty
+-----
+
+The following builds and runs [Jetty]'s `Http2Server` example:
+
+{% highlight bash %}
+git clone https://github.com/eclipse/jetty.project
+cd jetty.project
+# The profile 8u66 is for JDK version 1.8.0_66.
+mvn clean install dependency:copy-dependencies -DskipTests -P 8u66
+cd examples/embedded
+# ALPN version 8.1.6 fits with JDK 1.8.0_66.
+wget http://central.maven.org/maven2/org/mortbay/jetty/alpn/alpn-boot/8.1.6.v20151105/alpn-boot-8.1.6.v20151105.jar
+
+java -Xbootclasspath/p:alpn-boot-8.1.6.v20151105.jar -cp 'target/example-jetty-embedded-9.4.0-SNAPSHOT.jar:target/dependency/*' org.eclipse.jetty.embedded.Http2Server
+{% endhighlight %}
+
+The default timeout is 30 seconds. In order to configure another timeout, edit the example class
+`org.eclipse.jetty.embedded.Http2Server`, and add the timeout near line `122`:
+
+{% highlight java %}
+http2Connector.setIdleTimeout(10*1000);
+{% endhighlight %}
+
+This sets a 10 seconds timeout.
+
+Netty
+-----
+
+[Netty]'s `Http2Server` example is in branch `netty-5.0.0.Alpha2`, and can be built and run as follows:
+
+{% highlight bash %}
+git clone https://github.com/netty/netty
+cd netty
+# HTTP/2 support is not in the master branch yet.
+git checkout netty-5.0.0.Alpha2
+mvn clean package dependency:copy-dependencies -DskipTests -Dcheckstyle.skip=true
+cd example
+# Download the ALPN for the JDK. My JDK is 1.8.0_66, so I use ALPN version 8.1.5.
+wget http://central.maven.org/maven2/org/mortbay/jetty/alpn/alpn-boot/8.1.5.v20150921/alpn-boot-8.1.5.v20150921.jar
+
+java -Xbootclasspath/p:alpn-boot-8.1.5.v20150921.jar -cp 'target/netty-example-5.0.0.Alpha2.jar:target/dependency/*' -Dssl=true io.netty.example.http2.server.Http2Server
+{% endhighlight %}
+
+By default, there is no timeout configured. To enable timeout, edit the example class `Http2ServerInitializer` and add
+the following at the end of `initChannel()` near line `49`:
+
+{% highlight java %}
+ch.pipeline().addLast("idleStateHandler", new IdleStateHandler(30, 15, 0));
+ch.pipeline().addLast("myHandler", new MyHandler());
+{% endhighlight %}
+
+The [IdleStateHandler] triggers idle events. The `MyHandler` is a custom implementation that reacts on the idle events.
+
+The implementation of `MyHandler` looks like this:
+
+{% highlight java %}
+public class MyHandler extends ChannelHandlerAdapter {
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof IdleStateEvent) {
+            // todo.
+        }
+    }
+}
+{% endhighlight %}
+
+In the `todo` block, we could send a `GO_AWAY` frame and call `ctx.close()` to close the connection.
+However, more interestingly, the server can also ping the client to keep the connection alive:
+
+{% highlight java %}
+ByteBuf payload = Unpooled.copiedBuffer(new byte[8]);
+payload.setBytes(0, new byte[8]); // Should use different payload for each ping.
+new DefaultHttp2FrameWriter().writePing(ctx, false, payload, ctx.newPromise());
+ctx.flush();
+{% endhighlight %}
+
+[h2c]: https://github.com/fstab/h2c
+[ping]: https://httpwg.github.io/specs/rfc7540.html#PING
+[Java]: https://www.java.com
+[HTTP/2]: http://http2.github.io
+[Undertow]: http://undertow.io
+[WildFly]: http://wildfly.org
+[WildFly configuration]: http://wildscribe.github.io
+[https://developer.jboss.org/thread/266991]: https://developer.jboss.org/thread/266991
+[Jetty]: http://www.eclipse.org/jetty
+[Netty]: http://netty.io/
+[IdleStateHandler]: http://netty.io/5.0/api/io/netty/handler/timeout/IdleStateHandler.html
